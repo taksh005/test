@@ -17,13 +17,13 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.x'  # Replace with your Python version
+        python-version: '3.12.8'  # Replace with your Python version
 
     - name: Install PyInstaller
       run: pip install pyinstaller
 
     - name: Build Executable
-      run: pyinstaller --onefile your_script.py
+      run: pyinstaller --onefile mal
 
     - name: Archive and Upload Executable
       uses: actions/upload-artifact@v3
